@@ -6,8 +6,10 @@ app.use(express.json());
 
 const port = process.env.PORT || 3000;
 const verifyToken = "Dignity@4321";
-const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN; // Set in Render later
-const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID; // Set in Render later
+
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;   // From Render
+const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID; // From Render
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;   // From Render
 
 // Webhook verification
 app.get('/', (req, res) => {
@@ -16,7 +18,6 @@ app.get('/', (req, res) => {
   const challenge = req.query['hub.challenge'];
 
   if (mode === 'subscribe' && token === verifyToken) {
-    console.log('WEBHOOK VERIFIED');
     res.status(200).send(challenge);
   } else {
     res.status(403).end();
@@ -32,17 +33,38 @@ app.post('/', async (req, res) => {
       const message = entry?.messages?.[0];
 
       if (message && message.text) {
-        const from = message.from;  // User number
-        const text = message.text.body;
-        console.log(`📩 Message from ${from}: ${text}`);
+        const from = message.from;
+        const userText = message.text.body;
 
-        // Send reply
+        console.log(`📩 Message from ${from}: ${userText}`);
+
+        // 🔹 Call OpenAI API
+        const aiResponse = await axios.post(
+          "https://api.openai.com/v1/chat/completions",
+          {
+            model: "gpt-4o-mini",  // lightweight + fast
+            messages: [
+              { role: "system", content: "You are a friendly WhatsApp chatbot." },
+              { role: "user", content: userText }
+            ]
+          },
+          {
+            headers: {
+              "Authorization": `Bearer ${OPENAI_API_KEY}`,
+              "Content-Type": "application/json"
+            }
+          }
+        );
+
+        const botReply = aiResponse.data.choices[0].message.content;
+
+        // 🔹 Send reply back via WhatsApp API
         await axios.post(
           `https://graph.facebook.com/v20.0/${PHONE_NUMBER_ID}/messages`,
           {
             messaging_product: "whatsapp",
             to: from,
-            text: { body: "Hello 👋, thanks for messaging!" }
+            text: { body: botReply }
           },
           {
             headers: {
@@ -60,4 +82,4 @@ app.post('/', async (req, res) => {
   }
 });
 
-app.listen(port, () => console.log(`✅ Server running on port ${port}`));
+app.listen(port, () => console.log(`✅ AI Chatbot running on port ${port}`));
