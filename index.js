@@ -7,9 +7,12 @@ app.use(express.json());
 const port = process.env.PORT || 3000;
 const verifyToken = "Dignity@4321";
 
-const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;   // From Render
-const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID; // From Render
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;   // From Render
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;   // Render
+const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID; // Render
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;   // Render
+
+// 🔹 Store conversation history per user
+const conversations = {};  // { "user_number": [ {role, content}, ... ] }
 
 // Webhook verification
 app.get('/', (req, res) => {
@@ -33,20 +36,28 @@ app.post('/', async (req, res) => {
       const message = entry?.messages?.[0];
 
       if (message && message.text) {
-        const from = message.from;
+        const from = message.from;  // user number
         const userText = message.text.body;
 
         console.log(`📩 Message from ${from}: ${userText}`);
 
-        // 🔹 Call OpenAI API
+        // 🔹 Initialize history if new user
+        if (!conversations[from]) {
+          conversations[from] = [
+            { role: "system", content: "You are a helpful and friendly WhatsApp AI assistant." }
+          ];
+        }
+
+        // 🔹 Add user message to conversation
+        conversations[from].push({ role: "user", content: userText });
+
+        // 🔹 Call OpenAI with conversation history
         const aiResponse = await axios.post(
           "https://api.openai.com/v1/chat/completions",
           {
-            model: "gpt-4o-mini",  // lightweight + fast
-            messages: [
-              { role: "system", content: "You are a friendly WhatsApp chatbot." },
-              { role: "user", content: userText }
-            ]
+            model: "gpt-4o-mini",
+            messages: conversations[from],
+            max_tokens: 200
           },
           {
             headers: {
@@ -58,7 +69,15 @@ app.post('/', async (req, res) => {
 
         const botReply = aiResponse.data.choices[0].message.content;
 
-        // 🔹 Send reply back via WhatsApp API
+        // 🔹 Add assistant reply to conversation
+        conversations[from].push({ role: "assistant", content: botReply });
+
+        // 🔹 Keep memory short (last 10 messages)
+        if (conversations[from].length > 20) {
+          conversations[from] = conversations[from].slice(-20);
+        }
+
+        // 🔹 Send reply back via WhatsApp
         await axios.post(
           `https://graph.facebook.com/v20.0/${PHONE_NUMBER_ID}/messages`,
           {
@@ -82,4 +101,4 @@ app.post('/', async (req, res) => {
   }
 });
 
-app.listen(port, () => console.log(`✅ AI Chatbot running on port ${port}`));
+app.list
